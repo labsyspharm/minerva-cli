@@ -1,0 +1,7 @@
+[Minerva]
+Region = us-east-1
+Username = Minerva_Username
+Password = Minerva_Password
+Endpoint = https://minerva_endpoint
+CognitoUserPoolId =
+CognitoClient =

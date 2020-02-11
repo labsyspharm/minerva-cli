@@ -1,0 +1,5 @@
+dist
+build
+.pytest_cache
+minerva.spec
+minerva.config
