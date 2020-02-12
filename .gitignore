@@ -1,5 +1,7 @@
 dist
 build
 .pytest_cache
+__pycache__
+.idea
 minerva.spec
 minerva.config

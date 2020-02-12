@@ -2,10 +2,17 @@ import boto3
 import logging
 import requests
 import json
-from requests import Request
+
+
+class InvalidUsernameOrPassword(Exception):
+    pass
+
+
+class InvalidCognitoClientId(Exception):
+    pass
 
 class MinervaClient:
-    def __init__(self, endpoint, region, userpool, cognito_client_id):
+    def __init__(self, endpoint, region, cognito_client_id):
         self.endpoint = endpoint
         self.region = region
         self.cognito_client_id = cognito_client_id
@@ -15,20 +22,26 @@ class MinervaClient:
         self.session = None
 
     def authenticate(self, username, password):
-        logging.info("Logging in as %s", username)
-        client = boto3.client('cognito-idp')
-        response = client.initiate_auth(
-            AuthFlow='USER_PASSWORD_AUTH',
-            AuthParameters={
-                'USERNAME': username,
-                'PASSWORD': password
-            },
-            ClientId=self.cognito_client_id
-        )
-        self.id_token = response["AuthenticationResult"]["IdToken"]
-        self.token_type = response["AuthenticationResult"]["TokenType"]
-        self.refresh_token = response["AuthenticationResult"]["RefreshToken"]
-        logging.debug("Authenticated successfully")
+        try:
+            logging.info("Logging in as %s", username)
+            client = boto3.client('cognito-idp')
+            response = client.initiate_auth(
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={
+                    'USERNAME': username,
+                    'PASSWORD': password
+                },
+                ClientId=self.cognito_client_id
+            )
+            self.id_token = response["AuthenticationResult"]["IdToken"]
+            self.token_type = response["AuthenticationResult"]["TokenType"]
+            self.refresh_token = response["AuthenticationResult"]["RefreshToken"]
+            logging.debug("Authenticated successfully")
+        except client.exceptions.NotAuthorizedException:
+            raise InvalidUsernameOrPassword
+        except client.exceptions.ResourceNotFoundException as e:
+            logging.error(e)
+            raise InvalidCognitoClientId
 
     def request(self, method, path, body=None, parameters=None):
         if self.session is None:
@@ -86,6 +99,9 @@ class MinervaClient:
 
     def get_image_dimensions(self, image_uuid):
         return self.request('GET', '/image/' + image_uuid + '/dimensions')
+
+    def list_incomplete_imports(self):
+        return self.request('GET', '/import/incomplete')
 
 
 

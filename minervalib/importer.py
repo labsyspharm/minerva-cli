@@ -1,7 +1,6 @@
 import logging, time, sys
 import os, random, string, re
-import boto3
-import concurrent
+import tabulate
 from concurrent.futures import ThreadPoolExecutor
 from minervalib.client import MinervaClient
 from .progress import ProgressPercentage
@@ -9,42 +8,37 @@ from .s3 import S3Uploader
 
 class MinervaImporter:
 
-    FILE_FILTER = [".tif", ".tiff", ".rcpnl"]
-
     def __init__(self, minerva_client: MinervaClient, uploader: S3Uploader, region=None):
         self.minerva_client = minerva_client
         self.uploader = uploader
-        self.region = "us-east-1"
-        if region is not None:
-            self.region = region
+        self.region = region or "us-east-1"
 
-    def import_files(self, files, repository=None):
-        logging.info("Importing files from dir: %s", dir)
-        #files = MinervaImporter._list_files(dir)
-
+    def import_files(self, files, repository=None, archive=False):
         res = self.minerva_client.list_repositories()
         existing_repository = list(filter(lambda x: x["name"] == repository, res["included"]["repositories"]))
         if len(existing_repository) == 0:
-            res = self.minerva_client.create_repository(repository)
+            raw_storage = "Destroy" if not archive else "Archive"
+            res = self.minerva_client.create_repository(repository, raw_storage=raw_storage)
             repository_uuid = res["data"]["uuid"]
             logging.info("Created new repository, uuid: %s", repository_uuid)
         else:
             repository_uuid = existing_repository[0]["uuid"]
             logging.info("Using existing repository uuid: %s", repository_uuid)
+            if archive:
+                logging.warning("Archive flag has no effect, because using existing repository!")
 
         # Create a random name for import
         import_uuid = self._create_import(repository_uuid)
+        logging.info("Created new import, uuid: %s", import_uuid)
         # Get AWS credentials for S3 bucket for raw image
         credentials, bucket, prefix = self._get_credentials(import_uuid)
-        logging.info("S3 bucket: %s prefix: %s", bucket, prefix)
+        logging.info("Uploading to S3 bucket: %s prefix: %s", bucket, prefix)
 
         # Upload all files in parallel to S3
         self._upload_files(files, bucket, prefix, credentials)
 
         self.minerva_client.mark_import_complete(import_uuid)
-
-        self._poll_import_progress(import_uuid)
-        self._print_results(import_uuid)
+        return import_uuid
 
     def _create_import(self, repository_uuid):
         import_name = 'I' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
@@ -67,11 +61,15 @@ class MinervaImporter:
                 filename = os.path.splitext(file)[0]
                 key = prefix + '/' + extension + '/' + filename
 
-                future = executor.submit(self.uploader.upload, file, bucket, key, credentials, progress)
+                executor.submit(self.uploader.upload, file, bucket, key, credentials, progress)
 
-    def _poll_import_progress(self, import_uuid):
+        sys.stdout.write("\r\n")
+
+    def poll_import_progress(self, import_uuid):
         all_complete = False
-        logging.info("\nWaiting for filesets...")
+        timeout = 1800  # 30 mins
+        start = time.time()
+        logging.info("Please wait while filesets are created...")
         while not all_complete:
             result = self.minerva_client.list_filesets_in_import(import_uuid)
             filesets = result["data"]
@@ -86,6 +84,12 @@ class MinervaImporter:
                 MinervaImporter._print_progress(progresses)
 
             if not all_complete:
+                time_spent = time.time() - start
+                if time_spent > timeout:
+                    logging.warning("Waiting for import timed out!")
+                    logging.warning("Fileset progress can be checked with command: minerva status")
+                    all_complete = True
+
                 time.sleep(2)
 
     @staticmethod
@@ -97,12 +101,12 @@ class MinervaImporter:
         for p in progresses:
             fileset = p[0]
             progress = p[1]
-            sys.stdout.write("{} {}%".format(fileset["name"], progress))
+            sys.stdout.write("{} {}% ".format(fileset["name"], progress))
 
-    def _print_results(self, import_uuid):
-        logging.info("\n")
+    def print_results(self, import_uuid):
+        print("\n")
         result = self.minerva_client.list_filesets_in_import(import_uuid)
         for fileset in result["data"]:
             result = self.minerva_client.list_images_in_fileset(fileset["uuid"])
-            for image in result["data"]:
-                logging.info(image)
+            print(tabulate.tabulate(result["data"], headers="keys"))
+            print("\n")
