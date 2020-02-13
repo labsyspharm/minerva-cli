@@ -103,5 +103,7 @@ class MinervaClient:
     def list_incomplete_imports(self):
         return self.request('GET', '/import/incomplete')
 
+    def cognito_details(self):
+        return self.request('GET', '/cognito_details')
 
 

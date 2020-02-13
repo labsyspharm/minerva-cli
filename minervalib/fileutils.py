@@ -24,3 +24,11 @@ class FileUtils:
                              'contain only alphanumeric characters, dash and '
                              'underscore. The maximum length '
                              'is {}'.format(object_type, FileUtils._length_name))
+
+    @staticmethod
+    def get_key(filename):
+        basename = os.path.basename(filename)
+        path = os.path.dirname(filename)
+        path = path.replace("\\", "/")
+        path = re.sub("^[a-zA-Z]:", "", path)
+        return path + '/' + basename

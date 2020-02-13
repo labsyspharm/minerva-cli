@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from minervalib.client import MinervaClient
 from .progress import ProgressPercentage
 from .s3 import S3Uploader
+from .fileutils import FileUtils
 
 class MinervaImporter:
 
@@ -32,7 +33,7 @@ class MinervaImporter:
         logging.info("Created new import, uuid: %s", import_uuid)
         # Get AWS credentials for S3 bucket for raw image
         credentials, bucket, prefix = self._get_credentials(import_uuid)
-        logging.info("Uploading to S3 bucket: %s prefix: %s", bucket, prefix)
+        logging.info("Uploading to S3 bucket: %s/%s", bucket, prefix)
 
         # Upload all files in parallel to S3
         self._upload_files(files, bucket, prefix, credentials)
@@ -47,7 +48,7 @@ class MinervaImporter:
 
     def _get_credentials(self, import_uuid):
         res = self.minerva_client.get_import_credentials(import_uuid)
-        m = re.match(r"^s3://([A-z0-9\-]+)/([A-z0-9\-]+/)$", res["data"]["url"])
+        m = re.match(r"^s3://([A-z0-9\-]+)/([A-z0-9\-]+)/$", res["data"]["url"])
         bucket = m.group(1)
         prefix = m.group(2)
         credentials = res["data"]["credentials"]
@@ -57,10 +58,7 @@ class MinervaImporter:
         progress = ProgressPercentage()
         with ThreadPoolExecutor() as executor:
             for file in files:
-                extension = os.path.splitext(file)[1]
-                filename = os.path.splitext(file)[0]
-                key = prefix + '/' + extension + '/' + filename
-
+                key = prefix + FileUtils.get_key(file)
                 executor.submit(self.uploader.upload, file, bucket, key, credentials, progress)
 
         sys.stdout.write("\r\n")
