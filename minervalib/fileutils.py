@@ -2,6 +2,9 @@ import os, logging, re
 
 class FileUtils:
 
+    _valid_name = re.compile('^[a-zA-Z][a-zA-Z0-9\\-_]+$')
+    _length_name = 128
+
     @staticmethod
     def list_files(dir, filefilter):
         files = []
@@ -14,8 +17,18 @@ class FileUtils:
         logging.debug(files)
         return files
 
-    _valid_name = re.compile('^[a-zA-Z][a-zA-Z0-9\\-_]+$')
-    _length_name = 128
+    @staticmethod
+    def list_files_regex(dir, pattern):
+        files = []
+        prog = re.compile(pattern)
+        for filename in os.listdir(dir):
+            if prog.match(filename):
+                files.append(os.path.join(dir, filename))
+            else:
+                logging.info("(skip) Filename %s does not match tile pattern: %s", filename, pattern)
+
+        logging.info(files)
+        return files
 
     @staticmethod
     def validate_name(s, object_type=None):

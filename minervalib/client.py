@@ -85,6 +85,9 @@ class MinervaClient:
     def get_import_credentials(self, import_uuid):
         return self.request('GET', '/import/' + import_uuid + '/credentials')
 
+    def get_image_credentials(self, image_uuid):
+        return self.request('GET', '/image/' + image_uuid + '/credentials')
+
     def mark_import_complete(self, import_uuid):
         body = {
             "complete": True
@@ -105,5 +108,13 @@ class MinervaClient:
 
     def cognito_details(self):
         return self.request('GET', '/cognito_details')
+
+    def create_image(self, name, repository_uuid, pyramid_levels=1):
+        body = {
+            "name": name,
+            "pyramid_levels": pyramid_levels,
+            "repository_uuid": repository_uuid
+        }
+        return self.request('POST', '/image', body)
 
 

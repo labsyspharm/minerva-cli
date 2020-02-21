@@ -7,16 +7,20 @@ from minervalib.s3 import S3Uploader
 from minervalib.fileutils import FileUtils
 import tabulate
 
+FILE_FILTER = [".ome.tif", ".rcpnl", ".metadata", ".dv", ".png"]
+TILE_PATTERN = "C\\d+-T\\d+-Z\\d+-L\\d+-Y\\d+-X\\d+\\.png"
+
 root = logging.getLogger()
 logging_level = logging.DEBUG if "--debug" in sys.argv else logging.INFO
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging_level, format=FORMAT)
 
 class Configuration:
-    def __init__(self, repository=None, directory=None, archive=None):
+    def __init__(self, repository=None, directory=None, archive=None, image_name=None):
         self.repository = repository
         self.directory = directory
         self.archive = archive
+        self.image_name = image_name
 
 def check_required_arguments(args):
     exit = False
@@ -29,10 +33,21 @@ def check_required_arguments(args):
         sys.exit(1)
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(prog="minerva", description='Minerva Command Line Interface v1.0', epilog="Example command: minerva import --repository repo1 --dir /data")
+    epilog = """
+Importing images: \tminerva import -r repository -d /directory
+Importing tiles:  \tminerva direct -r repository -d /directory -n image_name
+ - Tiles' filenames must be in format C0-T0-Z0-L0-Y0-X0.png
+ - Image format must be 16-bit grayscale PNG
+List repositories: \tminerva list
+Show import status: \tminerva status
+    """
+    parser = argparse.ArgumentParser(prog="minerva",
+                                     description='Minerva Command Line Interface v1.0',
+                                     epilog=epilog,
+                                     formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "list", "status"], type=str,
-                        help='Command - [import=Import images, list=List repositories, status=Fileset status]')
+    parser.add_argument('command', choices=["import", "direct", "list", "status"], type=str,
+                        help='[import=Import images, Direct=Direct import, list=List repositories, status=Fileset status]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
@@ -49,8 +64,13 @@ def parse_arguments():
                         help='Repository name')
     parser.add_argument('--client_id', type=str,
                         help='Cognito ClientId')
+    parser.add_argument('--imagename', '-n', type=str, help='Image name (direct import)')
     parser.add_argument('--archive', action='store_const', const=True, help='Archive original images', default=False)
     parser.add_argument('--debug', action='store_const', const=True, help='Debug logging on')
+
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     return parser.parse_args()
 
@@ -74,7 +94,7 @@ def execute_command(command, client, configuration):
         FileUtils.validate_name(configuration.repository, "Repository")
         logging.info("Importing files from directory: %s", configuration.directory)
         importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"))
-        files = FileUtils.list_files(configuration.directory, filefilter=[".ome.tif", ".rcpnl"])
+        files = FileUtils.list_files(configuration.directory, filefilter=FILE_FILTER)
         if len(files) == 0:
             logging.info("No image files found in directory %s", configuration.directory)
             sys.exit(0)
@@ -82,6 +102,20 @@ def execute_command(command, client, configuration):
         import_uuid = importer.import_files(files=files, repository=configuration.repository)
         importer.poll_import_progress(import_uuid)
         importer.print_results(import_uuid)
+
+    elif command == 'direct':
+        check_required_arguments([configuration.repository, "Repository"])
+        FileUtils.validate_name(configuration.repository, "Repository")
+        logging.info("Direct import of files from directory: %s", configuration.directory)
+        importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"))
+        files = FileUtils.list_files_regex(configuration.directory, pattern=TILE_PATTERN)
+        if len(files) == 0:
+            logging.info("No tiles found in directory %s", configuration.directory)
+            sys.exit(0)
+
+        importer.validate_tiles(files)
+        image_uuid = importer.direct_import(files, repository=configuration.repository, name=configuration.image_name)
+        logging.info("Image uuid: %s", image_uuid)
 
     elif command == 'list':
         logging.info("Listing repositories:")
@@ -108,6 +142,7 @@ def main():
     directory = args.dir
     archive = args.archive
     repository = args.repository
+    image_name = args.imagename
     # Load minerva.config by default if no other config-file was specified by user
     if config is None and os.path.isfile("minerva.config"):
         config = "minerva.config"
@@ -133,7 +168,7 @@ def main():
          (client_id, "CognitoClient")])
 
     client = create_minerva_client(endpoint=endpoint, region=region, client_id=client_id, username=username, password=password)
-    configuration = Configuration(repository=repository, directory=directory, archive=archive)
+    configuration = Configuration(repository=repository, directory=directory, archive=archive, image_name=image_name)
     execute_command(args.command, client, configuration)
 
 

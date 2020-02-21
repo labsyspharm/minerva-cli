@@ -15,6 +15,36 @@ class MinervaImporter:
         self.region = region or "us-east-1"
 
     def import_files(self, files, repository=None, archive=False):
+        repository_uuid = self._create_or_get_repository(repository, archive)
+        # Create a random name for import
+        import_uuid = self._create_import(repository_uuid)
+        logging.info("Created new import, uuid: %s", import_uuid)
+        # Get AWS credentials for S3 bucket for raw image
+        credentials, bucket, prefix = self._get_import_credentials(import_uuid)
+        logging.info("Uploading to S3 bucket: %s/%s", bucket, prefix)
+
+        # Upload all files in parallel to S3
+        self._upload_raw_files(files, bucket, prefix, credentials)
+
+        self.minerva_client.mark_import_complete(import_uuid)
+        return import_uuid
+
+    def direct_import(self, files, name=None, repository=None):
+        repository_uuid = self._create_or_get_repository(repository, False)
+        if name is None:
+            name = 'IMG_' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
+
+        res = self.minerva_client.create_image(name, repository_uuid)
+        image_uuid = res["data"]["uuid"]
+        logging.info("Created new image, uuid: %s", image_uuid)
+        credentials, bucket, prefix = self._get_image_credentials(image_uuid)
+        logging.info("Credentials %s", credentials)
+        logging.info("Bucket %s", bucket)
+        logging.info("Prefix %s", prefix)
+        self._upload_tiles(files, bucket, prefix, credentials)
+        return image_uuid
+
+    def _create_or_get_repository(self, repository, archive=False):
         res = self.minerva_client.list_repositories()
         existing_repository = list(filter(lambda x: x["name"] == repository, res["included"]["repositories"]))
         if len(existing_repository) == 0:
@@ -27,26 +57,14 @@ class MinervaImporter:
             logging.info("Using existing repository uuid: %s", repository_uuid)
             if archive:
                 logging.warning("Archive flag has no effect, because using existing repository!")
-
-        # Create a random name for import
-        import_uuid = self._create_import(repository_uuid)
-        logging.info("Created new import, uuid: %s", import_uuid)
-        # Get AWS credentials for S3 bucket for raw image
-        credentials, bucket, prefix = self._get_credentials(import_uuid)
-        logging.info("Uploading to S3 bucket: %s/%s", bucket, prefix)
-
-        # Upload all files in parallel to S3
-        self._upload_files(files, bucket, prefix, credentials)
-
-        self.minerva_client.mark_import_complete(import_uuid)
-        return import_uuid
+        return repository_uuid
 
     def _create_import(self, repository_uuid):
         import_name = 'I' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
         res = self.minerva_client.create_import(import_name, repository_uuid)
         return res["data"]["uuid"]
 
-    def _get_credentials(self, import_uuid):
+    def _get_import_credentials(self, import_uuid):
         res = self.minerva_client.get_import_credentials(import_uuid)
         m = re.match(r"^s3://([A-z0-9\-]+)/([A-z0-9\-]+)/$", res["data"]["url"])
         bucket = m.group(1)
@@ -54,11 +72,30 @@ class MinervaImporter:
         credentials = res["data"]["credentials"]
         return credentials, bucket, prefix
 
-    def _upload_files(self, files, bucket, prefix, credentials):
+    def _get_image_credentials(self, image_uuid):
+        res = self.minerva_client.get_image_credentials(image_uuid)
+        logging.info(res)
+
+        m = re.match(r"^s3://([A-z0-9\-]+)/([A-z0-9\-]+)/$", res["data"]["image_url"])
+        bucket = m.group(1)
+        prefix = m.group(2)
+        credentials = res["data"]["credentials"]
+        return credentials, bucket, prefix
+
+    def _upload_raw_files(self, files, bucket, prefix, credentials):
         progress = ProgressPercentage()
         with ThreadPoolExecutor() as executor:
             for file in files:
                 key = prefix + FileUtils.get_key(file)
+                executor.submit(self.uploader.upload, file, bucket, key, credentials, progress)
+
+        sys.stdout.write("\r\n")
+
+    def _upload_tiles(self, files, bucket, prefix, credentials):
+        progress = ProgressPercentage()
+        with ThreadPoolExecutor() as executor:
+            for file in files:
+                key = prefix + "/" + os.path.basename(file)
                 executor.submit(self.uploader.upload, file, bucket, key, credentials, progress)
 
         sys.stdout.write("\r\n")
@@ -108,3 +145,27 @@ class MinervaImporter:
             result = self.minerva_client.list_images_in_fileset(fileset["uuid"])
             print(tabulate.tabulate(result["data"], headers="keys"))
             print("\n")
+
+    @staticmethod
+    def validate_tiles(files):
+        '''
+        Validate that files are of supported tile format: 16-bit grayscale png
+        '''
+        for tile in files:
+            with open(tile, 'rb') as f:
+                # png signature
+                signature = f.read(8)
+                png = signature[1:4]
+                if png != b'PNG':
+                    raise ValueError('Invalid file ' + tile + '. Image must be a PNG image!')
+                # signature end
+
+                #  IHDR chunk
+                ihdr = f.read(25)
+                depth = ihdr[16]
+                color = ihdr[17]
+                if depth != 16:
+                    raise ValueError('Invalid file ' + tile + '. PNG must be 16 bit depth! Depth: ', depth)
+                if color != 0:
+                    raise ValueError('Invalid file ' + tile + '. PNG must be grayscale! Color: ', color)
+

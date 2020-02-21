@@ -7,9 +7,10 @@ Minerva command line interface allows uploading and importing microscopy images 
 ### Show help
 
 python minerva.py -h
+
 ## Import instructions
 
-python minerva.py import --username USER --password PWD --dir DIRECTORY
+python minerva.py import -r REPOSITORY_NAME -d DIRECTORY
 
 ## Configuration file
 
