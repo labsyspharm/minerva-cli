@@ -1,13 +1,13 @@
 import argparse, configparser
 import sys, logging, os
 
-from minervalib.importer import MinervaImporter
-from minervalib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
-from minervalib.s3 import S3Uploader
-from minervalib.fileutils import FileUtils
+from minerva_lib.importing import MinervaImporter
+from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
+from minerva_lib.util.s3 import S3Uploader
+from minerva_lib.util.fileutils import FileUtils
 import tabulate
 
-FILE_FILTER = [".ome.tif", ".rcpnl", ".metadata", ".dv", ".png"]
+FILE_FILTER = [".tif", ".rcpnl", ".dv"]
 TILE_PATTERN = "C\\d+-T\\d+-Z\\d+-L\\d+-Y\\d+-X\\d+\\.png"
 
 root = logging.getLogger()
@@ -74,6 +74,13 @@ Show import status: \tminerva status
 
     return parser.parse_args()
 
+def print_results(client, import_uuid):
+    print("\n")
+    result = client.list_filesets_in_import(import_uuid)
+    for fileset in result["data"]:
+        result = client.list_images_in_fileset(fileset["uuid"])
+        print(tabulate.tabulate(result["data"], headers="keys"))
+        print("\n")
 
 def create_minerva_client(endpoint, region, client_id, username, password):
     client = MinervaClient(endpoint=endpoint, region=region, cognito_client_id=client_id)
@@ -101,7 +108,7 @@ def execute_command(command, client, configuration):
 
         import_uuid = importer.import_files(files=files, repository=configuration.repository)
         importer.poll_import_progress(import_uuid)
-        importer.print_results(import_uuid)
+        print_results(client, import_uuid)
 
     elif command == 'direct':
         check_required_arguments([configuration.repository, "Repository"])
@@ -113,8 +120,21 @@ def execute_command(command, client, configuration):
             logging.info("No tiles found in directory %s", configuration.directory)
             sys.exit(0)
 
-        importer.validate_tiles(files)
-        image_uuid = importer.direct_import(files, repository=configuration.repository, name=configuration.image_name)
+        metadata_file = os.path.join(configuration.directory, 'metadata.xml')
+        if not os.path.exists(metadata_file):
+            raise ValueError('No metadata.xml found in directory ' + configuration.directory)
+
+        FileUtils.validate_tiles(files)
+        pyramid_levels = FileUtils.get_pyramid_levels(files)
+        image_uuid = importer.create_image(repository=configuration.repository, name=configuration.image_name, pyramid_levels=pyramid_levels)
+
+        with open(metadata_file, 'r') as f:
+            metadata = f.read()
+            importer.direct_import_metadata(metadata, image_uuid)
+
+        importer.direct_import_files(files, image_uuid=image_uuid, async_upload=True)
+        importer.wait_upload()
+
         logging.info("Image uuid: %s", image_uuid)
 
     elif command == 'list':
