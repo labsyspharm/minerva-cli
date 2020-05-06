@@ -41,23 +41,31 @@ pip install -r requirements.txt
 
 # Configure minerva.config
 cp minerva.config.example minerva.config
-vi minerva.config
 # Edit the values in config file
+vi minerva.config
+# It's a good idea to hide the config file from other users
+chmod 700 minerva.config
 ```
 
 ### Import images from ImStor to Minerva Cloud
 ```bash
-# Log in O2 transfer with SSH (transfer.rc.hms.harvard.edu)
+# Log in O2 transfer node with SSH (replace ecommons with eCommons user id)
+ssh ecommons@transfer.rc.hms.harvard.edu
 # Copy images from ImStor to scratch space, e.g.
 mkdir -p /n/scratch2/$USER/import
 cp /n/files/ImStor/.../image.ome.tif /n/scratch2/$USER/import
 
 # Log in O2 with SSH
+ssh ecommons@o2.hms.harvard.edu
 # Start interactive O2 session
 srun --pty -p interactive --mem 500M -t 0-06:00 /bin/bash
 
+# Activate conda environment
+conda activate minerva
+
 # Run Minerva import
 # (replace <REPOSITORY> with a repository name)
+# All the images from the given directory will be imported
 python $HOME/minerva-cli/minerva.py import -r <REPOSITORY> -d /n/scratch2/$USER/import
 ```
 

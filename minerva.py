@@ -176,6 +176,8 @@ def main():
         endpoint = cp.get('Minerva', 'Endpoint')
         client_id = cp.get('Minerva', 'CognitoClient')
         region = cp.get('Minerva', 'Region')
+    else:
+        logging.warning("No config file found.")
 
     username = args.username or username
     password = args.password or password
