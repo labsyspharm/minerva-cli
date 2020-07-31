@@ -1,8 +1,0 @@
-# To user this config file, fill in the values and rename it as minerva.config.
-
-[Minerva]
-Region = us-east-1
-Username = Minerva_Username
-Password = Minerva_Password
-Endpoint = https://minerva_endpoint
-CognitoClient = cognito_client_id

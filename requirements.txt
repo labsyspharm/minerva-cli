@@ -1,4 +1,4 @@
-boto3==1.11.12
+boto3==1.14.33
 requests==2.22.0
 tabulate==0.8.6
 

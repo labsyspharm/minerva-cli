@@ -1,7 +1,10 @@
 import argparse, configparser
 import sys, logging, os
+import pathlib
+from uuid import UUID
 
 from minerva_lib.importing import MinervaImporter
+from minerva_lib.exporting import export_image
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
 from minerva_lib.util.s3 import S3Uploader
 from minerva_lib.util.fileutils import FileUtils
@@ -15,12 +18,16 @@ logging_level = logging.DEBUG if "--debug" in sys.argv else logging.INFO
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging_level, format=FORMAT)
 
+
 class Configuration:
-    def __init__(self, repository=None, directory=None, archive=None, image_name=None):
+    def __init__(self, repository=None, directory=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False):
         self.repository = repository
         self.directory = directory
         self.archive = archive
         self.image_name = image_name
+        self.image_uuid = image_uuid
+        self.output = output
+        self.save_pyramid = save_pyramid
 
 def check_required_arguments(args):
     exit = False
@@ -34,10 +41,12 @@ def check_required_arguments(args):
 
 def parse_arguments():
     epilog = """
-Importing images: \tminerva import -r repository -d /directory
-Importing tiles:  \tminerva direct -r repository -d /directory -n image_name
- - Tiles' filenames must be in format C0-T0-Z0-L0-Y0-X0.png
- - Image format must be 16-bit grayscale PNG
+Import images: \t\tminerva import -r repository -d /directory
+Import tiles:  \t\tminerva direct -r repository -d /directory -n image_name
+ ( Tiles' filenames must be in format C0-T0-Z0-L0-Y0-X0.png )
+ ( Image format must be 16-bit grayscale TIFF )
+
+Export image: \t\tminerva export --id [UUID] 
 List repositories: \tminerva list
 Show import status: \tminerva status
     """
@@ -46,16 +55,12 @@ Show import status: \tminerva status
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "direct", "list", "status"], type=str,
-                        help='[import=Import images, Direct=Direct import, list=List repositories, status=Fileset status]')
+    parser.add_argument('command', choices=["import", "export", "direct", "list", "status"], type=str,
+                        help='[import=Import images, export=Export image, Direct=Direct import, list=List repositories, status=Show import status]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
                         help='Import directory', default='.')
-    parser.add_argument('--username', type=str,
-                        help='Username')
-    parser.add_argument('--password', type=str,
-                        help='Password')
     parser.add_argument('--endpoint', type=str,
                         help='Minerva endpoint')
     parser.add_argument('--region', type=str,
@@ -64,6 +69,12 @@ Show import status: \tminerva status
                         help='Repository name')
     parser.add_argument('--client_id', type=str,
                         help='Cognito ClientId')
+    parser.add_argument('--id', type=str,
+                        help='Image uuid (for export)')
+    parser.add_argument('--output', '-o', type=str,
+                        help='Output path (for export)')
+    parser.add_argument('--pyramid', '-p', dest='pyramid', action='store_true',
+                        help='Save pyramid (for export)')
     parser.add_argument('--imagename', '-n', type=str, help='Image name (direct import)')
     parser.add_argument('--archive', action='store_const', const=True, help='Archive original images', default=False)
     parser.add_argument('--debug', action='store_const', const=True, help='Debug logging on')
@@ -104,7 +115,7 @@ def execute_command(command, client, configuration):
         files = FileUtils.list_files(configuration.directory, filefilter=FILE_FILTER)
         if len(files) == 0:
             logging.info("No image files found in directory %s", configuration.directory)
-            sys.exit(0)
+            return -1
 
         import_uuid = importer.import_files(files=files, repository=configuration.repository)
         importer.poll_import_progress(import_uuid)
@@ -118,11 +129,12 @@ def execute_command(command, client, configuration):
         files = FileUtils.list_files_regex(configuration.directory, pattern=TILE_PATTERN)
         if len(files) == 0:
             logging.info("No tiles found in directory %s", configuration.directory)
-            sys.exit(0)
+            return -1
 
         metadata_file = os.path.join(configuration.directory, 'metadata.xml')
         if not os.path.exists(metadata_file):
-            raise ValueError('No metadata.xml found in directory ' + configuration.directory)
+            logging.error('No metadata.xml found in directory %s', configuration.directory)
+            return -1
 
         FileUtils.validate_tiles(files)
         pyramid_levels = FileUtils.get_pyramid_levels(files)
@@ -156,31 +168,57 @@ def execute_command(command, client, configuration):
             logging.info("Following filesets are currently processing:")
             print(tabulate.tabulate(result["included"]["filesets"], headers="keys"))
 
+    elif command == 'export':
+        if configuration.image_uuid is None:
+            logging.error("Image uuid has to be specified with argument --id")
+            return -1
+        logging.info("Exporting image uuid: %s (pyramid=%s)", configuration.image_uuid, configuration.save_pyramid)
+        try:
+            uuid_obj = UUID(configuration.image_uuid, version=4)
+            export_image(client, str(uuid_obj), configuration.output, save_pyramid=configuration.save_pyramid)
+        except ValueError:
+            logging.error("%s is not a valid UUID", configuration.image_uuid)
+            return -1
+        except Exception:
+            return -1
+
+    return 0
+
 def main():
     args = parse_arguments()
     config = args.config
-    directory = args.dir
-    archive = args.archive
-    repository = args.repository
-    image_name = args.imagename
-    # Load minerva.config by default if no other config-file was specified by user
-    if config is None and os.path.isfile("minerva.config"):
-        config = "minerva.config"
+    # Load .minerva from home directory by default, if no other config-file was specified by user
+    if config is None:
+        config = os.path.join(pathlib.Path.home(), ".minerva")
+
+    if not os.path.isfile(config):
+        logging.error("Configuration file not found: %s", config)
+        return -1
+
+    username = None
+    password = None
+    endpoint = None
+    client_id = None
+    region = None
 
     if config is not None:
-        logging.info("Using config file: %s", config)
+        logging.info("Reading config file: %s", config)
         cp = configparser.ConfigParser()
         cp.read(config)
-        username = cp.get('Minerva', 'Username')
-        password = cp.get('Minerva', 'Password')
-        endpoint = cp.get('Minerva', 'Endpoint')
-        client_id = cp.get('Minerva', 'CognitoClient')
-        region = cp.get('Minerva', 'Region')
+        username = cp.get('Minerva', 'MINERVA_USERNAME')
+        password = cp.get('Minerva', 'MINERVA_PASSWORD')
+        endpoint = cp.get('Minerva', 'MINERVA_ENDPOINT')
+        client_id = cp.get('Minerva', 'MINERVA_CLIENT_ID')
+        region = cp.get('Minerva', 'MINERVA_REGION')
     else:
         logging.warning("No config file found.")
 
-    username = args.username or username
-    password = args.password or password
+    username = os.environ.get('MINERVA_USERNAME', username)
+    password = os.environ.get('MINERVA_PASSWORD', password)
+    endpoint = os.environ.get('MINERVA_ENDPOINT', endpoint)
+    client_id = os.environ.get('MINERVA_CLIENT_ID', client_id)
+    region = os.environ.get('MINERVA_REGION', region)
+
     endpoint = args.endpoint or endpoint
     region = args.region or region
     client_id = args.client_id or client_id
@@ -190,9 +228,17 @@ def main():
          (client_id, "CognitoClient")])
 
     client = create_minerva_client(endpoint=endpoint, region=region, client_id=client_id, username=username, password=password)
-    configuration = Configuration(repository=repository, directory=directory, archive=archive, image_name=image_name)
-    execute_command(args.command, client, configuration)
+    configuration = Configuration(repository=args.repository,
+                                  directory=args.dir,
+                                  archive=args.archive,
+                                  image_name=args.imagename,
+                                  image_uuid=args.id,
+                                  output=args.output,
+                                  save_pyramid=args.pyramid)
+    status = execute_command(args.command, client, configuration)
+    return status
 
 
 if __name__ == "__main__":
-    main()
+    status = main()
+    sys.exit(status)

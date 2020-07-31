@@ -1,0 +1,9 @@
+# This is an example configuration file
+# Fill in the values and copy the file to $HOME/.minerva
+
+[Minerva]
+MINERVA_REGION = us-east-1
+MINERVA_USERNAME = Minerva_Username
+MINERVA_PASSWORD = Minerva_Password
+MINERVA_ENDPOINT = https://minerva_endpoint
+MINERVA_CLIENT_ID = cognito_client_id
