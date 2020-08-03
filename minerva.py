@@ -34,7 +34,7 @@ def check_required_arguments(args):
     for arg in args:
         if arg[0] is None:
             exit = True
-            print("Argument missing:", arg[1])
+            print("Missing variable:", arg[1])
 
     if exit:
         sys.exit(1)
@@ -205,11 +205,11 @@ def main():
         logging.info("Reading config file: %s", config)
         cp = configparser.ConfigParser()
         cp.read(config)
-        username = cp.get('Minerva', 'MINERVA_USERNAME')
-        password = cp.get('Minerva', 'MINERVA_PASSWORD')
-        endpoint = cp.get('Minerva', 'MINERVA_ENDPOINT')
-        client_id = cp.get('Minerva', 'MINERVA_CLIENT_ID')
-        region = cp.get('Minerva', 'MINERVA_REGION')
+        username = cp.get('Minerva', 'MINERVA_USERNAME', fallback=None)
+        password = cp.get('Minerva', 'MINERVA_PASSWORD', fallback=None)
+        endpoint = cp.get('Minerva', 'MINERVA_ENDPOINT', fallback=None)
+        client_id = cp.get('Minerva', 'MINERVA_CLIENT_ID', fallback=None)
+        region = cp.get('Minerva', 'MINERVA_REGION', fallback=None)
     else:
         logging.warning("No config file found.")
 
@@ -224,8 +224,8 @@ def main():
     client_id = args.client_id or client_id
 
     check_required_arguments(
-        [(username, "Username"), (password, "Password"), (endpoint, "Endpoint"), (region, "Region"),
-         (client_id, "CognitoClient")])
+        [(username, "MINERVA_USERNAME"), (password, "MINERVA_PASSWORD"), (endpoint, "MINERVA_ENDPOINT"), (region, "MINERVA_REGION"),
+         (client_id, "MINERVA_CLIENT_ID")])
 
     client = create_minerva_client(endpoint=endpoint, region=region, client_id=client_id, username=username, password=password)
     configuration = Configuration(repository=args.repository,
