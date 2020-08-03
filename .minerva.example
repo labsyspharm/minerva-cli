@@ -1,5 +1,6 @@
 # This is an example configuration file
 # Fill in the values and copy the file to $HOME/.minerva
+# All the parameters can also be set as environment variables.
 
 [Minerva]
 MINERVA_REGION = us-east-1
