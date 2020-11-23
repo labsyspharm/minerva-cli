@@ -1,4 +1,0 @@
-[Minerva]
-MINERVA_REGION = us-east-1
-MINERVA_ENDPOINT = https://nldzj7hd69.execute-api.us-east-1.amazonaws.com/dev
-MINERVA_CLIENT_ID = 6ctsnjjglmtna2q5fgtrjug47k
