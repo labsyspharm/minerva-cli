@@ -3,6 +3,7 @@ import sys, logging, os
 import pathlib
 from uuid import UUID
 
+from util.configurer import Configurer
 from minerva_lib.importing import MinervaImporter
 from minerva_lib.exporting import export_image
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
@@ -32,7 +33,7 @@ class Configuration:
 def check_required_arguments(args):
     exit = False
     for arg in args:
-        if arg[0] is None:
+        if arg[0] is None or arg[0] == "":
             exit = True
             print("Missing variable:", arg[1])
 
@@ -49,14 +50,15 @@ Import tiles:  \t\tminerva direct -r repository -d /directory -n image_name
 Export image: \t\tminerva export --id [UUID] 
 List repositories: \tminerva list
 Show import status: \tminerva status
+Configure Minerva CLI:\tminerva configure
     """
     parser = argparse.ArgumentParser(prog="minerva",
                                      description='Minerva Command Line Interface v1.0',
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "export", "direct", "list", "status"], type=str,
-                        help='[import=Import images, export=Export image, Direct=Direct import, list=List repositories, status=Show import status]')
+    parser.add_argument('command', choices=["import", "export", "direct", "list", "status", "configure"], type=str,
+                        help='[import=Import images, export=Export image, Direct=Direct import, list=List repositories, status=Show import status, configure=Configure]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
@@ -182,10 +184,17 @@ def execute_command(command, client, configuration):
         except Exception:
             return -1
 
+    elif command == 'configure':
+        configurer = Configurer()
+        configurer.interactive_config()
+
     return 0
 
 def main():
     args = parse_arguments()
+    if args.command == "configure":
+        return execute_command(args.command, None, None)
+
     config = args.config
     # Load .minerva from home directory by default, if no other config-file was specified by user
     if config is None:

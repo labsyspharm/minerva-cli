@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Minerva command line interface allows uploading and importing/exporting microscopy images to/from Minerva Cloud system.
+Minerva Command Line Interface allows uploading and importing microscopy images into Minerva Cloud. Images can also be exported out of Minerva Cloud and saved to local disk in OME-TIFF format.
 
 ## Configuration
 
@@ -10,23 +10,36 @@ Minerva will by default look for a file named .minerva in the user's home direct
 
 Arguments given in command line will override values set in the config file. Config file location may be overridden with argument --config [PATH]
 
-There is an example config file provided. Copy .minerva.example as $HOME/.minerva, and open the file with a text editor to edit values. All the parameter values can also be set with environment variables.
-- MINERVA_REGION = us-east-1 (aws region where Minerva is installed)
-- MINERVA_USERNAME = Minerva Username
-- MINERVA_PASSWORD = Minerva Password
-- MINERVA_ENDPOINT = API Gateway stage URL, e.g. https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
-- MINERVA_CLIENT_ID = Cognito App client id for the user pool
+Minerva CLI can be setup by running the command ```minerva configure```
+Minerva CLI will then prompt you for the following pieces of information:
+
+| Parameter name | Description
+| :------------- | :----------
+| MINERVA_REGION | us-east-1 (aws region where Minerva is installed)
+| MINERVA_USERNAME | Minerva Username (can be left empty)
+| MINERVA_PASSWORD | Minerva Password (can be left empty)
+| MINERVA_ENDPOINT | API Gateway stage URL, e.g. https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
+| MINERVA_CLIENT_ID | Cognito App client id for the user pool
+
+There is also an example config file provided in case it's easier to edit the file. Copy .minerva.example as $HOME/.minerva, and open the file with a text editor to edit values. All the parameter values can also be set with environment variables.
 
 ### Show help
 ```
 python minerva.py
 ```
-## Import an image to Minerva Cloud
+## Import an image into Minerva Cloud
 ```bash
 # Replace <REPOSITORY> with a repository name, and <DIRECTORY> with a path to a directory.
 # All images from the directory and its subdirectories will be imported.
 
 python minerva.py import -r <REPOSITORY> -d <DIRECTORY>
+```
+
+## Export OME-TIFF from Minerva Cloud to local disk
+```bash
+# The following command will export and save the image by its default name, and save only
+# the highest pyramid level.
+python minerva.py export --id [IMAGE_UUID]
 ```
 
 ## Running on O2
@@ -53,7 +66,7 @@ nano minerva.config
 chmod 700 ~/.minerva
 ```
 
-### Import images from ImStor to Minerva Cloud
+### Import images from ImStor into Minerva Cloud
 ```bash
 # Log in O2 transfer node with SSH (replace ecommonsid with your eCommons user id)
 ssh ecommonsid@transfer.rc.hms.harvard.edu
@@ -75,9 +88,4 @@ conda activate minerva
 python $HOME/minerva-cli/minerva.py import -r [REPOSITORY] -d /n/scratch3/$USER/dataset
 ```
 
-### Export OME-TIFF from Minerva Cloud to local disk
-```bash
-# The following command will export and save the image by its default name, and save only
-# the highest pyramid level.
-python minerva.py export --id [IMAGE_UUID]
-```
+
