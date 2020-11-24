@@ -1,9 +1,11 @@
+#!/usr/bin/env python
+
 import argparse, configparser
 import sys, logging, os
 import pathlib
 from uuid import UUID
 
-from util.configurer import Configurer
+from cli.util.configurer import Configurer
 from minerva_lib.importing import MinervaImporter
 from minerva_lib.exporting import export_image
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
@@ -202,6 +204,7 @@ def main():
 
     if not os.path.isfile(config):
         logging.error("Configuration file not found: %s", config)
+        logging.info("Run \"minerva configure\"")
         return -1
 
     username = None
