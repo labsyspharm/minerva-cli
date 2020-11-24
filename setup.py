@@ -5,7 +5,7 @@ with open("readme.md", "r") as readme_file:
 
 setuptools.setup(
     name='minerva-cli',
-    version='1.0',
+    version='1.0.1',
     author="Juha Ruokonen",
     description='Minerva Command Line Interface',
     long_description=long_description,
