@@ -11,26 +11,34 @@ from minerva_lib.exporting import export_image
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
 from minerva_lib.util.s3 import S3Uploader
 from minerva_lib.util.fileutils import FileUtils
+from tqdm import tqdm
 import tabulate
 
 FILE_FILTER = [".tif", ".rcpnl", ".dv"]
+OME_FILE_FILTER = [".tif"]
 TILE_PATTERN = "C\\d+-T\\d+-Z\\d+-L\\d+-Y\\d+-X\\d+\\.png"
 
-root = logging.getLogger()
-logging_level = logging.DEBUG if "--debug" in sys.argv else logging.INFO
-FORMAT = '%(asctime)-15s %(message)s'
+logger = logging.getLogger("minerva")
+logging_level = logging.DEBUG if "--debug" in sys.argv else logging.WARNING
+minerva_logging_level = logging.DEBUG if "--debug" in sys.argv else logging.INFO
+FORMAT = '%(asctime)-15s %(levelname)s - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging_level, format=FORMAT)
+logging.getLogger('minerva').setLevel(minerva_logging_level)
 
+if "--dryrun" in sys.argv:
+    logger.info("DRY RUN")
 
 class Configuration:
-    def __init__(self, repository=None, directory=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False):
+    def __init__(self, repository=None, directory=None, file=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False, dryrun=False):
         self.repository = repository
         self.directory = directory
+        self.file = file
         self.archive = archive
         self.image_name = image_name
         self.image_uuid = image_uuid
         self.output = output
         self.save_pyramid = save_pyramid
+        self.dryrun = dryrun
 
 def check_required_arguments(args):
     exit = False
@@ -64,7 +72,9 @@ Configure Minerva CLI:\tminerva configure
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
-                        help='Import directory', default='.')
+                        help='Import directory')
+    parser.add_argument('--file', '-f', type=str,
+                        help='Import file', default='')
     parser.add_argument('--endpoint', type=str,
                         help='Minerva endpoint')
     parser.add_argument('--region', type=str,
@@ -82,6 +92,7 @@ Configure Minerva CLI:\tminerva configure
     parser.add_argument('--imagename', '-n', type=str, help='Image name (direct import)')
     parser.add_argument('--archive', action='store_const', const=True, help='Archive original images', default=False)
     parser.add_argument('--debug', action='store_const', const=True, help='Debug logging on')
+    parser.add_argument('--dryrun', action='store_const', const=True, help='Dry run', default=False)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -109,52 +120,16 @@ def create_minerva_client(endpoint, region, client_id, username, password):
         sys.exit(1)
     return client
 
-def execute_command(command, client, configuration):
+def execute_command(command, client, cfg):
     command = command.lower()
     if command == 'import':
-        check_required_arguments([configuration.repository, "Repository"])
-        FileUtils.validate_name(configuration.repository, "Repository")
-        logging.info("Importing files from directory: %s", configuration.directory)
-        importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"))
-        files = FileUtils.list_files(configuration.directory, filefilter=FILE_FILTER)
-        if len(files) == 0:
-            logging.info("No image files found in directory %s", configuration.directory)
-            return -1
-
-        import_uuid = importer.import_files(files=files, repository=configuration.repository)
-        importer.poll_import_progress(import_uuid)
-        print_results(client, import_uuid)
+        return batch_import(cfg, client)
 
     elif command == 'direct':
-        check_required_arguments([configuration.repository, "Repository"])
-        FileUtils.validate_name(configuration.repository, "Repository")
-        logging.info("Direct import of files from directory: %s", configuration.directory)
-        importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"))
-        files = FileUtils.list_files_regex(configuration.directory, pattern=TILE_PATTERN)
-        if len(files) == 0:
-            logging.info("No tiles found in directory %s", configuration.directory)
-            return -1
-
-        metadata_file = os.path.join(configuration.directory, 'metadata.xml')
-        if not os.path.exists(metadata_file):
-            logging.error('No metadata.xml found in directory %s', configuration.directory)
-            return -1
-
-        FileUtils.validate_tiles(files)
-        pyramid_levels = FileUtils.get_pyramid_levels(files)
-        image_uuid = importer.create_image(repository=configuration.repository, name=configuration.image_name, pyramid_levels=pyramid_levels)
-
-        with open(metadata_file, 'r') as f:
-            metadata = f.read()
-            importer.direct_import_metadata(metadata, image_uuid)
-
-        importer.direct_import_files(files, image_uuid=image_uuid, async_upload=True)
-        importer.wait_upload()
-
-        logging.info("Image uuid: %s", image_uuid)
+        return local_import(cfg, client)
 
     elif command == 'list':
-        logging.info("Listing repositories:")
+        logger.info("Listing repositories:")
         result = client.list_repositories()
         repositories = result["included"]["repositories"]
         for repo in repositories:
@@ -167,28 +142,92 @@ def execute_command(command, client, configuration):
     elif command == 'status':
         result = client.list_incomplete_imports()
         if len(result["data"]) == 0:
-            logging.info("No imports are processing currently.")
+            logger.info("No imports are processing currently.")
         else:
-            logging.info("Following filesets are currently processing:")
+            logger.info("Following filesets are currently processing:")
             print(tabulate.tabulate(result["included"]["filesets"], headers="keys"))
 
     elif command == 'export':
-        if configuration.image_uuid is None:
-            logging.error("Image uuid has to be specified with argument --id")
-            return -1
-        logging.info("Exporting image uuid: %s (pyramid=%s)", configuration.image_uuid, configuration.save_pyramid)
-        try:
-            uuid_obj = UUID(configuration.image_uuid, version=4)
-            export_image(client, str(uuid_obj), configuration.output, save_pyramid=configuration.save_pyramid)
-        except ValueError:
-            logging.error("%s is not a valid UUID", configuration.image_uuid)
-            return -1
-        except Exception:
-            return -1
+        return export(cfg, client)
 
     elif command == 'configure':
         configurer = Configurer()
         configurer.interactive_config()
+
+    return 0
+
+def _get_files(file_or_directory: str, filefilter=None):
+    files = []
+    if file_or_directory != '' and os.path.isdir(file_or_directory):
+        files += (FileUtils.list_files(file_or_directory, filefilter=filefilter))
+    else:
+        files.append(file_or_directory)
+    return files
+
+def batch_import(cfg, client):
+    check_required_arguments([cfg.repository, "Repository"])
+    FileUtils.validate_name(cfg.repository, "Repository")
+    logger.info("Importing files from directory: %s", cfg.directory)
+    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
+
+    file_or_directory = cfg.directory if len(cfg.file) == 0 else cfg.file
+    files = _get_files(file_or_directory, filefilter=FILE_FILTER)
+    if len(files) == 0:
+        logger.error("No files found.")
+        return -1
+
+    import_uuid = importer.import_files(files=files, repository=cfg.repository)
+    importer.poll_import_progress(import_uuid)
+    print_results(client, import_uuid)
+    return 0
+
+def local_import(cfg, client):
+    check_required_arguments([(cfg.repository, "Repository")])
+    if cfg.file is None and cfg.directory is None:
+        logger.error("Need to define either directory or file to import.")
+        return -1
+
+    FileUtils.validate_name(cfg.repository, "Repository")
+    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
+
+    file_or_directory = cfg.directory if len(cfg.file) == 0 else cfg.file
+    files = _get_files(file_or_directory, filefilter=OME_FILE_FILTER)
+    if len(files) == 0:
+        logger.error("No files found.")
+        return -1
+
+    for file in files:
+        logger.info("Importing file %s", file)
+        with tqdm(unit="tiles") as pbar:
+            def show_progress(processed, total):
+                pbar.total = total
+                pbar.update(1)
+
+            try:
+                importer.import_ome_tiff(file, repository=cfg.repository, progress_callback=show_progress)
+            except Exception as e:
+                logger.error(e)
+    return 0
+
+def export(cfg, client):
+    if cfg.image_uuid is None:
+        logging.error("Image uuid has to be specified with argument --id")
+        return -1
+    logger.info("Exporting image uuid: %s (pyramid=%s)", cfg.image_uuid, cfg.save_pyramid)
+    try:
+        uuid_obj = UUID(cfg.image_uuid, version=4)
+        with tqdm(unit="tiles") as pbar:
+            def show_progress(processed, total):
+                pbar.total = total
+                pbar.update(1)
+
+            export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress)
+
+    except ValueError:
+        logging.error("%s is not a valid UUID", cfg.image_uuid)
+        return -1
+    except Exception:
+        return -1
 
     return 0
 
@@ -204,7 +243,7 @@ def main():
 
     if not os.path.isfile(config):
         logging.error("Configuration file not found: %s", config)
-        logging.info("Run \"minerva configure\"")
+        logger.info("Run \"minerva configure\"")
         return -1
 
     username = None
@@ -214,7 +253,7 @@ def main():
     region = None
 
     if config is not None:
-        logging.info("Reading config file: %s", config)
+        logger.info("Reading config file: %s", config)
         cp = configparser.ConfigParser()
         cp.read(config)
         username = cp.get('Minerva', 'MINERVA_USERNAME', fallback=None)
@@ -242,11 +281,13 @@ def main():
     client = create_minerva_client(endpoint=endpoint, region=region, client_id=client_id, username=username, password=password)
     configuration = Configuration(repository=args.repository,
                                   directory=args.dir,
+                                  file=args.file,
                                   archive=args.archive,
                                   image_name=args.imagename,
                                   image_uuid=args.id,
                                   output=args.output,
-                                  save_pyramid=args.pyramid)
+                                  save_pyramid=args.pyramid,
+                                  dryrun=args.dryrun)
     status = execute_command(args.command, client, configuration)
     return status
 

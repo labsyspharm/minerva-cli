@@ -1,11 +1,14 @@
 import setuptools
 
-with open("readme.md", "r") as readme_file:
+# read the contents of your README file
+from os import path
+this_directory = path.abspath(path.dirname(__file__))
+with open(path.join(this_directory, "README.md"), "r") as readme_file:
     long_description = readme_file.read()
 
 setuptools.setup(
     name='minerva-cli',
-    version='1.0.1',
+    version='0.0.2',
     author="Juha Ruokonen",
     description='Minerva Command Line Interface',
     long_description=long_description,
@@ -22,7 +25,8 @@ setuptools.setup(
         "boto3",
         "requests",
         "tabulate",
-        "minerva-lib"
+        "minerva-lib",
+        "tqdm"
     ],
     dependency_links=[
         'git+https://github.com/labsyspharm/minerva-lib-python@master#egg=minerva-lib'
