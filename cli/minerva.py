@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+Minerva Command Line Client
+"""
+
 import argparse, configparser
 import sys, logging, os
 import pathlib
@@ -14,8 +18,8 @@ from minerva_lib.util.fileutils import FileUtils
 from tqdm import tqdm
 import tabulate
 
-FILE_FILTER = [".tif", ".rcpnl", ".dv"]
-OME_FILE_FILTER = [".tif"]
+BATCH_IMPORT_FILE_FILTER = [".tif", ".rcpnl", ".dv"]
+LOCAL_IMPORT_FILE_FILTER = [".tif"]
 TILE_PATTERN = "C\\d+-T\\d+-Z\\d+-L\\d+-Y\\d+-X\\d+\\.png"
 
 logger = logging.getLogger("minerva")
@@ -44,7 +48,7 @@ class Configuration:
 def check_required_arguments(args):
     exit = False
     for arg in args:
-        if arg[0] is None or arg[0] == "":
+        if not arg[0]:
             exit = True
             print("Missing variable:", arg[1])
 
@@ -124,12 +128,7 @@ def create_minerva_client(endpoint, region, client_id, username, password):
 def execute_command(command, client, cfg):
     command = command.lower()
     if command == 'import':
-        if cfg.local_import:
-            logger.info("Processing images locally.")
-            return local_import(cfg, client)
-        else:
-            logger.info("Images are sent to cloud for processing.")
-            return batch_import(cfg, client)
+        _import(cfg, client)
 
     elif command == 'list':
         logger.info("Listing repositories:")
@@ -167,39 +166,56 @@ def _get_files(file_or_directory: str, filefilter=None):
         files.append(file_or_directory)
     return files
 
-def batch_import(cfg, client):
-    check_required_arguments([cfg.repository, "Repository"])
+def _import(cfg, client):
+    if not cfg.file and not cfg.directory:
+        logger.error("Define either a directory with -d or file with -f to import.")
+        return -1
+
     FileUtils.validate_name(cfg.repository, "Repository")
-    logger.info("Importing files from directory: %s", cfg.directory)
-    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
 
     file_or_directory = cfg.directory if len(cfg.file) == 0 else cfg.file
-    files = _get_files(file_or_directory, filefilter=FILE_FILTER)
+    filefilter = LOCAL_IMPORT_FILE_FILTER if cfg.local_import else BATCH_IMPORT_FILE_FILTER
+    files = _get_files(file_or_directory, filefilter=filefilter)
     if len(files) == 0:
         logger.error("No files found.")
         return -1
+
+    if cfg.local_import:
+        logger.info("Processing images locally.")
+        return _local_import(cfg, client, files)
+    else:
+        logger.info("Images are sent to cloud for processing.")
+        return _batch_import(cfg, client, files)
+
+def _batch_import(cfg, client, files):
+    """
+    Batch import uploads the original image files into S3 raw bucket,
+    and starts an AWS Batch Job to process the images.
+    """
+    check_required_arguments([cfg.repository, "Repository"])
+
+    logger.info("Importing files from directory: %s", cfg.directory)
+    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
 
     import_uuid = importer.import_files(files=files, repository=cfg.repository)
     importer.poll_import_progress(import_uuid)
     print_results(client, import_uuid)
     return 0
 
-def local_import(cfg, client):
+def _local_import(cfg, client, files):
+    """
+    Local import process the images on local machine,
+    after which the tiles are uploaded into S3 tile bucket.
+    """
     check_required_arguments([(cfg.repository, "Repository")])
-    if cfg.file is None and cfg.directory is None:
-        logger.error("Need to define either directory or file to import.")
-        return -1
 
-    FileUtils.validate_name(cfg.repository, "Repository")
     importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
 
-    file_or_directory = cfg.directory if len(cfg.file) == 0 else cfg.file
-    files = _get_files(file_or_directory, filefilter=OME_FILE_FILTER)
-    if len(files) == 0:
-        logger.error("No files found.")
-        return -1
-
     for file in files:
+        if not os.path.exists(file):
+            logger.warning("File does not exist: %s", file)
+            return -1
+
         if not os.path.basename(file).endswith(".ome.tif"):
             logger.warning("Only OME-TIFFs can be imported with local import.")
             logger.warning("Skipping file %s", file)
@@ -218,6 +234,9 @@ def local_import(cfg, client):
     return 0
 
 def export(cfg, client):
+    """
+    Export downloads all the tiles from S3 tile bucket, and reconstructs an OME-TIFF file with metadata.
+    """
     if cfg.image_uuid is None:
         logger.error("Image uuid has to be specified with argument --id")
         return -1
@@ -307,5 +326,5 @@ if __name__ == "__main__":
     if status == 0:
         logger.info("Great Success")
     else:
-        logger.warning("There was an error.")
+        logger.error("There was an error.")
     sys.exit(status)
