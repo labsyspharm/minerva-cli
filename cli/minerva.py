@@ -113,10 +113,10 @@ def create_minerva_client(endpoint, region, client_id, username, password):
     try:
         client.authenticate(username, password)
     except InvalidUsernameOrPassword as e:
-        logging.error("Incorrect username or password.")
+        logger.error("Incorrect username or password.")
         sys.exit(1)
     except InvalidCognitoClientId as e:
-        logging.error("Check the value for CognitoClient!")
+        logger.error("Check the value for CognitoClient!")
         sys.exit(1)
     return client
 
@@ -197,6 +197,11 @@ def local_import(cfg, client):
         return -1
 
     for file in files:
+        if not os.path.basename(file).endswith(".ome.tif"):
+            logger.warning("Only OME-TIFFs can be imported with local import.")
+            logger.warning("Skipping file %s", file)
+            continue
+
         logger.info("Importing file %s", file)
         with tqdm(unit="tiles") as pbar:
             def show_progress(processed, total):
@@ -211,7 +216,7 @@ def local_import(cfg, client):
 
 def export(cfg, client):
     if cfg.image_uuid is None:
-        logging.error("Image uuid has to be specified with argument --id")
+        logger.error("Image uuid has to be specified with argument --id")
         return -1
     logger.info("Exporting image uuid: %s (pyramid=%s)", cfg.image_uuid, cfg.save_pyramid)
     try:
@@ -221,10 +226,11 @@ def export(cfg, client):
                 pbar.total = total
                 pbar.update(1)
 
-            export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress)
+            output = export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress)
+            logger.info("Image saved as %s", output)
 
     except ValueError:
-        logging.error("%s is not a valid UUID", cfg.image_uuid)
+        logger.error("%s is not a valid UUID", cfg.image_uuid)
         return -1
     except Exception:
         return -1
@@ -242,7 +248,7 @@ def main():
         config = os.path.join(pathlib.Path.home(), ".minerva")
 
     if not os.path.isfile(config):
-        logging.error("Configuration file not found: %s", config)
+        logger.error("Configuration file not found: %s", config)
         logger.info("Run \"minerva configure\"")
         return -1
 
@@ -262,7 +268,7 @@ def main():
         client_id = cp.get('Minerva', 'MINERVA_CLIENT_ID', fallback=None)
         region = cp.get('Minerva', 'MINERVA_REGION', fallback=None)
     else:
-        logging.warning("No config file found.")
+        logger.warning("No config file found.")
 
     username = os.environ.get('MINERVA_USERNAME', username)
     password = os.environ.get('MINERVA_PASSWORD', password)
@@ -294,4 +300,8 @@ def main():
 
 if __name__ == "__main__":
     status = main()
+    if status == 0:
+        logger.info("Great Success")
+    else:
+        logger.warning("There was an error.")
     sys.exit(status)
