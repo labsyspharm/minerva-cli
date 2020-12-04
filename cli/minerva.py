@@ -21,7 +21,7 @@ TILE_PATTERN = "C\\d+-T\\d+-Z\\d+-L\\d+-Y\\d+-X\\d+\\.png"
 logger = logging.getLogger("minerva")
 logging_level = logging.DEBUG if "--debug" in sys.argv else logging.WARNING
 minerva_logging_level = logging.DEBUG if "--debug" in sys.argv else logging.INFO
-FORMAT = '%(asctime)-15s %(levelname)s - %(message)s'
+FORMAT = '%(asctime)-15s %(levelname)-8s - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging_level, format=FORMAT)
 logging.getLogger('minerva').setLevel(minerva_logging_level)
 
@@ -29,7 +29,7 @@ if "--dryrun" in sys.argv:
     logger.info("DRY RUN")
 
 class Configuration:
-    def __init__(self, repository=None, directory=None, file=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False, dryrun=False):
+    def __init__(self, repository=None, directory=None, file=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False, dryrun=False, local_import=False):
         self.repository = repository
         self.directory = directory
         self.file = file
@@ -39,6 +39,7 @@ class Configuration:
         self.output = output
         self.save_pyramid = save_pyramid
         self.dryrun = dryrun
+        self.local_import = local_import
 
 def check_required_arguments(args):
     exit = False
@@ -52,12 +53,11 @@ def check_required_arguments(args):
 
 def parse_arguments():
     epilog = """
-Import images: \t\tminerva import -r repository -d /directory
-Import tiles:  \t\tminerva direct -r repository -d /directory -n image_name
- ( Tiles' filenames must be in format C0-T0-Z0-L0-Y0-X0.png )
- ( Image format must be 16-bit grayscale TIFF )
-
-Export image: \t\tminerva export --id [UUID] 
+Examples:
+Import whole directory: minerva import -r REPOSITORY_NAME -d /directory
+Import single file: \tminerva import -r REPOSITORY_NAME -f /path/file
+(When importing only OME-TIFFs, --local flag can be used to optimize the process)
+Export image: \t\tminerva export --id IMAGE_UUID
 List repositories: \tminerva list
 Show import status: \tminerva status
 Configure Minerva CLI:\tminerva configure
@@ -67,8 +67,8 @@ Configure Minerva CLI:\tminerva configure
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "export", "direct", "list", "status", "configure"], type=str,
-                        help='[import=Import images, export=Export image, Direct=Direct import, list=List repositories, status=Show import status, configure=Configure]')
+    parser.add_argument('command', choices=["import", "export", "list", "status", "configure"], type=str,
+                        help='[import=Import images, export=Export image, list=List repositories, status=Show import status, configure=Configure]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
@@ -90,6 +90,7 @@ Configure Minerva CLI:\tminerva configure
     parser.add_argument('--pyramid', '-p', dest='pyramid', action='store_true',
                         help='Save pyramid (for export)')
     parser.add_argument('--imagename', '-n', type=str, help='Image name (direct import)')
+    parser.add_argument('--local', '-l', action='store_const', const=True, help='Use local import', default=False)
     parser.add_argument('--archive', action='store_const', const=True, help='Archive original images', default=False)
     parser.add_argument('--debug', action='store_const', const=True, help='Debug logging on')
     parser.add_argument('--dryrun', action='store_const', const=True, help='Dry run', default=False)
@@ -123,10 +124,12 @@ def create_minerva_client(endpoint, region, client_id, username, password):
 def execute_command(command, client, cfg):
     command = command.lower()
     if command == 'import':
-        return batch_import(cfg, client)
-
-    elif command == 'direct':
-        return local_import(cfg, client)
+        if cfg.local_import:
+            logger.info("Processing images locally.")
+            return local_import(cfg, client)
+        else:
+            logger.info("Images are sent to cloud for processing.")
+            return batch_import(cfg, client)
 
     elif command == 'list':
         logger.info("Listing repositories:")
@@ -293,7 +296,8 @@ def main():
                                   image_uuid=args.id,
                                   output=args.output,
                                   save_pyramid=args.pyramid,
-                                  dryrun=args.dryrun)
+                                  dryrun=args.dryrun,
+                                  local_import=args.local)
     status = execute_command(args.command, client, configuration)
     return status
 

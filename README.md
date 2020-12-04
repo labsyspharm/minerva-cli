@@ -27,19 +27,26 @@ There is also an example config file provided in case it's easier to edit the fi
 ```
 python minerva.py
 ```
-## Import an image into Minerva Cloud
+## Import a directory of images into Minerva Cloud
+Replace REPOSITORY_NAME with a repository name, and PATH_TO_DIRECTORY with a path to a directory.
+All images from the directory and its subdirectories will be imported.
 ```bash
-# Replace <REPOSITORY> with a repository name, and <DIRECTORY> with a path to a directory.
-# All images from the directory and its subdirectories will be imported.
-
-python minerva.py import -r <REPOSITORY> -d <DIRECTORY>
+python minerva.py import -r REPOSITORY_NAME -d PATH_TO_DIRECTORY
+```
+Import a single file.
+```bash
+python minerva.py import -r REPOSITORY_NAME -f PATH_TO_FILE```
+```
+When importing OME-TIFFs, the parameter --local will process the image locally, and in general will make the import faster with only one or few images.
+```bash
+python minerva.py import -r REPOSITORY_NAME -f PATH_TO_FILE --local```
 ```
 
 ## Export OME-TIFF from Minerva Cloud to local disk
+The following command will export and save the image by its default name, and save only
+the highest pyramid level.
 ```bash
-# The following command will export and save the image by its default name, and save only
-# the highest pyramid level.
-python minerva.py export --id [IMAGE_UUID]
+python minerva.py export --id IMAGE_UUID
 ```
 
 ## Running on O2
