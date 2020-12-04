@@ -1,5 +1,6 @@
 import os
 import pathlib
+import stat
 
 class Configurer:
     def __init__(self):
@@ -21,6 +22,7 @@ class Configurer:
                 line = "{} = {}\n".format(key, value)
                 config_file.write(line)
 
+        os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
         print("Configuration done.")
 
     def ask_value(self, description, default="", required=True):
