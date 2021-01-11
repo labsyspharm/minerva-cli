@@ -128,7 +128,7 @@ def create_minerva_client(endpoint, region, client_id, username, password):
 def execute_command(command, client, cfg):
     command = command.lower()
     if command == 'import':
-        _import(cfg, client)
+        return _import(cfg, client)
 
     elif command == 'list':
         logger.info("Listing repositories:")
@@ -194,7 +194,11 @@ def _batch_import(cfg, client, files):
     """
     check_required_arguments([cfg.repository, "Repository"])
 
-    logger.info("Importing files from directory: %s", cfg.directory)
+    if cfg.directory:
+        logger.info("Importing files from directory: %s", cfg.directory)
+    else:
+        logger.info("Importing file: %s", cfg.file)
+
     importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
 
     import_uuid = importer.import_files(files=files, repository=cfg.repository)
@@ -211,6 +215,7 @@ def _local_import(cfg, client, files):
 
     importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
 
+    status_code = 0
     for file in files:
         if not os.path.exists(file):
             logger.warning("File does not exist: %s", file)
@@ -230,8 +235,10 @@ def _local_import(cfg, client, files):
             try:
                 importer.import_ome_tiff(file, repository=cfg.repository, progress_callback=show_progress)
             except Exception as e:
-                logger.error(e)
-    return 0
+                status_code = -1
+                raise e
+
+    return status_code
 
 def export(cfg, client):
     """
@@ -249,12 +256,14 @@ def export(cfg, client):
                 pbar.update(1)
 
             output = export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress)
-            logger.info("Image saved as %s", output)
+
+        logger.info("Image saved as %s", output)
 
     except ValueError:
         logger.error("%s is not a valid UUID", cfg.image_uuid)
         return -1
-    except Exception:
+    except Exception as e:
+        logger.error(e)
         return -1
 
     return 0
