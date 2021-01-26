@@ -64,7 +64,8 @@ Import whole directory: minerva import -r REPOSITORY_NAME -d /directory
 Import single file: \tminerva import -r REPOSITORY_NAME -f /path/file
 (When importing only OME-TIFFs, --local flag can be used to optimize the process)
 Export image: \t\tminerva export --id IMAGE_UUID
-List repositories: \tminerva list
+List repositories: \tminerva repositories
+List images: \t\tminerva images -r REPOSITORY_NAME
 Show import status: \tminerva status
 Configure Minerva CLI:\tminerva configure
     """
@@ -73,8 +74,8 @@ Configure Minerva CLI:\tminerva configure
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "export", "list", "status", "configure", "images"], type=str,
-                        help='[import=Import images, export=Export image, list=List repositories, images=List images, status=Show import status, configure=Configure]')
+    parser.add_argument('command', choices=["import", "export", "repositories", "status", "configure", "images"], type=str,
+                        help='[import=Import images, export=Export image, repositories=List repositories, images=List images, status=Show import status, configure=Configure]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
@@ -134,7 +135,7 @@ def execute_command(command, client, cfg):
     if command == 'import':
         return _import(cfg, client)
 
-    elif command == 'list':
+    elif command == 'repositories':
         logger.info("Listing repositories:")
         result = client.list_repositories()
         repositories = result["included"]["repositories"]
@@ -160,6 +161,7 @@ def execute_command(command, client, cfg):
         print(tabulate.tabulate(result["data"], headers="keys"))
 
     elif command == 'status':
+        logger.info("Showing import status:")
         result = client.list_incomplete_imports()
         if len(result["data"]) == 0:
             logger.info("No imports are processing currently.")

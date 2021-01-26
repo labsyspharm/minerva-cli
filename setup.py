@@ -8,7 +8,7 @@ with open(path.join(this_directory, "README.md"), "r") as readme_file:
 
 setuptools.setup(
     name='minerva-cli',
-    version='0.0.2',
+    version='0.0.3',
     author="Juha Ruokonen",
     description='Minerva Command Line Interface',
     long_description=long_description,
