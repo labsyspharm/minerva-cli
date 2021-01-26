@@ -11,7 +11,7 @@ from uuid import UUID
 
 from cli.util.configurer import Configurer
 from minerva_lib.importing import MinervaImporter
-from minerva_lib.exporting import export_image
+from minerva_lib.exporting import MinervaExporter
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId
 from minerva_lib.util.s3 import S3Uploader
 from minerva_lib.util.fileutils import FileUtils
@@ -33,7 +33,7 @@ if "--dryrun" in sys.argv:
     logger.info("DRY RUN")
 
 class Configuration:
-    def __init__(self, repository=None, directory=None, file=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False, dryrun=False, local_import=False):
+    def __init__(self, repository=None, directory=None, file=None, archive=None, image_name=None, image_uuid=None, output=None, save_pyramid=False, dryrun=False, local_import=False, export_format="zarr", region="us-east-1"):
         self.repository = repository
         self.directory = directory
         self.file = file
@@ -44,6 +44,8 @@ class Configuration:
         self.save_pyramid = save_pyramid
         self.dryrun = dryrun
         self.local_import = local_import
+        self.export_format = export_format
+        self.region = region
 
 def check_required_arguments(args):
     exit = False
@@ -71,8 +73,8 @@ Configure Minerva CLI:\tminerva configure
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument('command', choices=["import", "export", "list", "status", "configure"], type=str,
-                        help='[import=Import images, export=Export image, list=List repositories, status=Show import status, configure=Configure]')
+    parser.add_argument('command', choices=["import", "export", "list", "status", "configure", "images"], type=str,
+                        help='[import=Import images, export=Export image, list=List repositories, images=List images, status=Show import status, configure=Configure]')
     parser.add_argument('--config', type=str,
                         help='Config file')
     parser.add_argument('--dir', '-d', type=str,
@@ -91,6 +93,8 @@ Configure Minerva CLI:\tminerva configure
                         help='Image uuid (for export)')
     parser.add_argument('--output', '-o', type=str,
                         help='Output path (for export)')
+    parser.add_argument('--format', choices=["zarr", "tif", "tiff"],
+                        help='Export format')
     parser.add_argument('--pyramid', '-p', dest='pyramid', action='store_true',
                         help='Save pyramid (for export)')
     parser.add_argument('--imagename', '-n', type=str, help='Image name (direct import)')
@@ -140,6 +144,20 @@ def execute_command(command, client, cfg):
                     repo["permission"] = grant["permission"]
 
         print(tabulate.tabulate(repositories, headers="keys"))
+
+    elif command == 'images':
+        logger.info("Listing images:")
+        if not cfg.repository:
+            logger.error("Need to pass repository with -r repository_name")
+            return -1
+        res = client.list_repositories()
+        existing_repository = list(filter(lambda x: x["name"] == cfg.repository, res["included"]["repositories"]))
+        if not existing_repository or len(existing_repository) == 0:
+            logger.error("Repository %s not found", cfg.repository)
+            return -1
+        repository_uuid = existing_repository[0]["uuid"]
+        result = client.list_images_in_repository(repository_uuid)
+        print(tabulate.tabulate(result["data"], headers="keys"))
 
     elif command == 'status':
         result = client.list_incomplete_imports()
@@ -199,7 +217,7 @@ def _batch_import(cfg, client, files):
     else:
         logger.info("Importing file: %s", cfg.file)
 
-    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
+    importer = MinervaImporter(client, uploader=S3Uploader(region=cfg.region), dryrun=cfg.dryrun)
 
     import_uuid = importer.import_files(files=files, repository=cfg.repository)
     importer.poll_import_progress(import_uuid)
@@ -213,7 +231,7 @@ def _local_import(cfg, client, files):
     """
     check_required_arguments([(cfg.repository, "Repository")])
 
-    importer = MinervaImporter(client, uploader=S3Uploader(region="us-east-1"), dryrun=cfg.dryrun)
+    importer = MinervaImporter(client, uploader=S3Uploader(region=cfg.region), dryrun=cfg.dryrun)
 
     status_code = 0
     for file in files:
@@ -244,6 +262,8 @@ def export(cfg, client):
     """
     Export downloads all the tiles from S3 tile bucket, and reconstructs an OME-TIFF file with metadata.
     """
+    exporter = MinervaExporter(cfg.region)
+
     if cfg.image_uuid is None:
         logger.error("Image uuid has to be specified with argument --id")
         return -1
@@ -255,7 +275,7 @@ def export(cfg, client):
                 pbar.total = total
                 pbar.update(1)
 
-            output = export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress)
+            output = exporter.export_image(client, str(uuid_obj), cfg.output, save_pyramid=cfg.save_pyramid, progress_callback=show_progress, format=cfg.export_format)
 
         logger.info("Image saved as %s", output)
 
@@ -325,7 +345,9 @@ def main():
                                   output=args.output,
                                   save_pyramid=args.pyramid,
                                   dryrun=args.dryrun,
-                                  local_import=args.local)
+                                  local_import=args.local,
+                                  export_format=args.format,
+                                  region=region)
     status = execute_command(args.command, client, configuration)
     return status
 
