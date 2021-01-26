@@ -355,7 +355,7 @@ def main():
 if __name__ == "__main__":
     status = main()
     if status == 0:
-        logger.info("Great Success")
+        logger.info("Success")
     else:
         logger.error("There was an error.")
     sys.exit(status)
