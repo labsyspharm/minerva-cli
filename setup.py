@@ -25,7 +25,7 @@ setuptools.setup(
         "boto3==1.14.44",
         "requests",
         "tabulate",
-        "minerva-lib",
+        "minerva-lib==0.0.5",
         "tqdm"
     ],
     dependency_links=[
