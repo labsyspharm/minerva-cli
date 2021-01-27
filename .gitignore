@@ -5,3 +5,4 @@ __pycache__
 .idea
 minerva.spec
 minerva.config
+_version.py

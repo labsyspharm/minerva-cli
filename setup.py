@@ -22,7 +22,7 @@ setuptools.setup(
     ],
     python_requires='>=3.7',
     install_requires=[
-        "boto3==1.14.44",
+        "boto3>=1.14.44",
         "requests",
         "tabulate",
         "minerva-lib==0.0.5",
@@ -33,10 +33,10 @@ setuptools.setup(
     ],
     entry_points={
         "console_scripts": [
-            "minerva=cli.minerva:main"
+            "minerva=minerva_cli.minerva:main"
         ]
     },
-    use_scm_version={"write_to": "cli/_version.py"},
+    use_scm_version={"write_to": "minerva_cli/_version.py"},
     setup_requires=["setuptools_scm"]
 )
 

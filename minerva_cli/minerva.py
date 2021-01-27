@@ -9,7 +9,7 @@ import pathlib
 from uuid import UUID
 
 from . import __version__
-from cli.util.configurer import Configurer
+from minerva_cli.util.configurer import Configurer
 from minerva_lib.importing import MinervaImporter
 from minerva_lib.exporting import MinervaExporter
 from minerva_lib.client import MinervaClient, InvalidUsernameOrPassword, InvalidCognitoClientId

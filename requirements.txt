@@ -1,4 +1,4 @@
-boto3==1.14.44
+boto3>=1.14.44
 requests==2.22.0
 tabulate==0.8.6
 tifffile==2020.11.26
