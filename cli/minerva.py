@@ -3,12 +3,12 @@
 """
 Minerva Command Line Client
 """
-
 import argparse, configparser
 import sys, logging, os
 import pathlib
 from uuid import UUID
 
+from . import __version__
 from cli.util.configurer import Configurer
 from minerva_lib.importing import MinervaImporter
 from minerva_lib.exporting import MinervaExporter
@@ -70,7 +70,7 @@ Show import status: \tminerva status
 Configure Minerva CLI:\tminerva configure
     """
     parser = argparse.ArgumentParser(prog="minerva",
-                                     description='Minerva Command Line Interface v1.0',
+                                     description='Minerva Command Line Interface ' + __version__,
                                      epilog=epilog,
                                      formatter_class=argparse.RawTextHelpFormatter)
 

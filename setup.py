@@ -35,6 +35,8 @@ setuptools.setup(
         "console_scripts": [
             "minerva=cli.minerva:main"
         ]
-    }
+    },
+    use_scm_version={"write_to": "cli/_version.py"},
+    setup_requires=["setuptools_scm"]
 )
 
