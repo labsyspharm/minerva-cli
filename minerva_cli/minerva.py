@@ -253,7 +253,10 @@ def _local_import(cfg, client, files):
                 pbar.update(1)
 
             try:
-                importer.import_ome_tiff(file, repository=cfg.repository, progress_callback=show_progress)
+                importer.import_ome_tiff(file,
+                                         repository=cfg.repository,
+                                         progress_callback=show_progress,
+                                         image_name=cfg.image_name)
             except Exception as e:
                 status_code = -1
                 raise e
